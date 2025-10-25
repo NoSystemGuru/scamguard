@@ -29,25 +29,22 @@ module.exports = async (req, res) => {
       });
     }
 
-    console.log('📡 Scraping:', url);
+    console.log('📡 Scraping via ScraperAPI:', url);
 
-    // 🔥 HEADERS AMÉLIORÉS pour contourner DataDome
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://www.leboncoin.fr/',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0'
-      },
-      timeout: 15000
+    // 🔥 SOLUTION : Utiliser ScraperAPI pour contourner DataDome
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    
+    if (!scraperApiKey) {
+      return res.status(500).set(corsHeaders).json({
+        error: 'SCRAPER_API_KEY manquante dans les variables d\'environnement'
+      });
+    }
+
+    // ScraperAPI avec render=true pour JavaScript
+    const scraperUrl = `http://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true`;
+
+    const response = await axios.get(scraperUrl, {
+      timeout: 30000 // ScraperAPI peut prendre plus de temps
     });
 
     const $ = cheerio.load(response.data);
