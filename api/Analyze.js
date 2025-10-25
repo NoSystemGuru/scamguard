@@ -1,6 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,9 +64,9 @@ module.exports = async (req, res) => {
 
     console.log('✅ Données extraites:', adData.title);
 
-    // 3. Analyse avec Claude
-    const anthropic = new Anthropic({
-      apiKey: process.env.CLAUDE_API_KEY
+    // 3. Analyse avec OpenAI GPT
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
     });
 
     const prompt = `Tu es un expert en détection d'arnaques sur les sites de petites annonces. Analyse cette annonce Leboncoin et fournis une évaluation détaillée.
@@ -91,34 +91,44 @@ Données de l'annonce:
 Fournis aussi:
 - overall_score: Score global sur 100
 - risk_level: "low", "medium" ou "high"
-- red_flags: Liste des points négatifs (tableau)
-- green_flags: Liste des points positifs (tableau)
+- red_flags: Liste des points négatifs (tableau de strings)
+- green_flags: Liste des points positifs (tableau de strings)
 - recommendation: Recommandation détaillée en français
 
-Réponds UNIQUEMENT avec un JSON valide, sans markdown:`;
+Réponds UNIQUEMENT avec un JSON valide.`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      messages: [{
-        role: 'user',
-        content: prompt
-      }]
+    console.log('🤖 Appel OpenAI...');
+
+    // Appel OpenAI avec JSON mode
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Modèle le moins cher
+      messages: [
+        {
+          role: "system",
+          content: "Tu es un expert en détection d'arnaques. Tu réponds toujours en JSON valide."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" }, // Force le format JSON
+      temperature: 0.7,
+      max_tokens: 2000
     });
 
-    const analysisText = message.content[0].text;
+    console.log('✅ OpenAI réponse reçue');
+
+    const analysisText = completion.choices[0].message.content;
     
     // Parser la réponse JSON
     let analysis;
     try {
-      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
-      } else {
-        analysis = JSON.parse(analysisText);
-      }
+      analysis = JSON.parse(analysisText);
+      console.log('✅ JSON parsé avec succès');
     } catch (parseError) {
-      console.error('Erreur parsing JSON:', parseError);
+      console.error('⚠️ Erreur parsing JSON:', parseError);
+      console.error('Réponse brute:', analysisText);
       // Valeurs par défaut
       analysis = {
         overall_score: 50,
@@ -132,15 +142,15 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown:`;
         timing_score: 50,
         items_count_score: 50,
         risk_level: 'medium',
-        red_flags: ['Analyse impossible - données insuffisantes'],
+        red_flags: ['Analyse automatique incomplète'],
         green_flags: ['Vérification manuelle recommandée'],
-        recommendation: 'L\'analyse automatique n\'a pas pu être complétée. Vérifiez manuellement l\'annonce.'
+        recommendation: 'L\'analyse automatique n\'a pas pu être complétée entièrement. Nous vous recommandons de vérifier manuellement cette annonce.'
       };
     }
 
-    console.log('✅ Analyse terminée');
+    console.log('✅ Analyse terminée - Score:', analysis.overall_score);
 
-    // 4. Retourner le résultat
+    // 4. Retourner le résultat complet
     return res.status(200).set(corsHeaders).json({
       success: true,
       data: {
@@ -153,10 +163,18 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown:`;
     });
 
   } catch (error) {
-    console.error('❌ Erreur:', error.message);
+    console.error('❌ Erreur détaillée:');
+    console.error('Message:', error.message);
+    console.error('Type:', error.name);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+
     return res.status(500).set(corsHeaders).json({
       error: 'Erreur lors de l\'analyse',
-      details: error.message
+      message: error.message,
+      details: error.response?.data || error.toString()
     });
   }
 };
